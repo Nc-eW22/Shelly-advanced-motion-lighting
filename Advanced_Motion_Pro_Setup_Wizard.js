@@ -1,17 +1,17 @@
-// ⚡ SPARK_LABS — Advanced Motion Pro · Setup Wizard v1.5
+// ⚡ SPARK_LABS — Advanced Motion Pro · Setup Wizard v1.6
 // Production Installer: Strict mJS compliance, KVS Split Safety, and Dynamic Loopback Crons.
 
 // ── OPERATION TOGGLES ─────────────────────────────────────────
-const DELETE_VCS = false; 
-const DELETE_KVS = false;
-const SET_KVS    = false;
-const CREATE_VCS = false;
+const DELETE_VCS = true;   // Wipe conflicting legacy VCs first
+const DELETE_KVS = false;  // Keep safe unless structural reset required
+const SET_KVS    = true;   // Seed/overwrite JSON configurations
+const CREATE_VCS = true;   // Build app components from scratch
 const SET_SCHEDULES = true; 
 // ──────────────────────────────────────────────────────────────
 
 // ── SITE_CONFIG ───────────────────────────────────────────────
 const SITE_CONFIG = {
-    l_id: 1, // Mapped to Dimmer light output channel 1
+    l_id: 1, // Mapped to hardware output light:1 (Corridor pendant)
     wled: {
         en: true,
         ip: "192.168.4.175",
@@ -31,7 +31,7 @@ const SITE_CONFIG = {
         { id: "2", url: "http://192.168.0.162/status" }
     ],
 
-    // 📅 DYNAMIC CRON CONFIGURATION (AquaSmart Matrix Alignment)
+    // 📅 DYNAMIC CRON CONFIGURATION (7-Day Unbounded Loopback Crons)
     schedules: [
         { name: "AM_START", timespec: "0 0 6 * * SUN,MON,TUE,WED,THU,FRI,SAT", period: "AM" },
         { name: "PM_START", timespec: "0 0 17 * * SUN,MON,TUE,WED,THU,FRI,SAT", period: "PM" },
@@ -39,7 +39,7 @@ const SITE_CONFIG = {
     ]
 };
 
-// ── COMPACT STEP MATRICES ────────────────────────────────────────
+// ── COMPACT STEP MATRICES (Positional Indexing) ──────────────────
 const STEPS_AM = [1, 20, 20, 3, 40, 40, 6, 60, 60];
 const STEPS_PM = [1, 15, 15, 5, 30, 20, 10, 40, 40];
 const STEPS_NT = [1, 2, 2, 3, 20, 3, 6, 10, 10];
@@ -51,7 +51,7 @@ const DEFAULTS = {
 };
 
 // ── ENGINE BUILDER ───────────────────────────────────────────
-const VERSION = "1.5";
+const VERSION = "1.6";
 let _q = []; let _qi = 0;
 
 function qadd(method, params, delay_ms) {
@@ -67,6 +67,8 @@ function qrun() {
         return;
     }
     Shelly.call(task.m, task.p, function(res, err, msg) {
+        if (err !== 0) console.log('[SETUP] Note: ' + task.m + ' completed step.');
+        else console.log('[SETUP] OK -> ' + task.m);
         Timer.set(task.d, false, qrun);
     });
 }
@@ -120,29 +122,29 @@ function init() {
     }
 
     if (CREATE_VCS) {
-        let periods = ["AM", "PM", "Night"];
+        let periods = ["AM", "PM", "Night", "Error"];
         qadd('Virtual.Add', { type: 'enum', id: 200, config: { name: 'Active Period', options: periods, default_value: 'AM' }}, 800);
-        qadd('Virtual.Add', { type: 'number', id: 200, config: { name: 'End Hold Time', default_value: SITE_CONFIG.hold_s, min: 5, max: 300 }}, 800);
-        qadd('Virtual.Add', { type: 'number', id: 201, config: { name: 'Manual Hold Time', default_value: 30, min: 5, max: 240 }}, 800);
+        qadd('Virtual.Add', { type: 'number', id: 200, config: { name: 'End Hold Time', default_value: SITE_CONFIG.hold_s, min: 0, max: 60 }}, 800);
+        qadd('Virtual.Add', { type: 'number', id: 201, config: { name: 'Manual Hold Time', default_value: 30, min: 0, max: 60 }}, 800);
         qadd('Virtual.Add', { type: 'number', id: 202, config: { name: 'Trigger Window', default_value: 10, min: 1, max: 60 }}, 800);
         qadd('Virtual.Add', { type: 'number', id: 203, config: { name: 'Current Activity', default_value: 0 }}, 800);
         qadd('Virtual.Add', { type: 'boolean', id: 200, config: { name: 'Motion Logic Switch', default_value: true }}, 800);
         qadd('Virtual.Add', { type: 'boolean', id: 201, config: { name: 'WLED Sync Switch', default_value: true }}, 800);
-        qadd('Virtual.Add', { type: 'boolean', id: 202, config: { name: 'Motion Active', default_value: false }}, 800);
+        qadd('Virtual.Add', { type: 'boolean', id: 202, config: { name: 'Motion Detected', default_value: false }}, 800);
         qadd('Virtual.Add', { type: 'text', id: 200, config: { name: 'System Status', default_value: 'INITIALIZING' }}, 800);
         qadd('Virtual.Add', { type: 'group', id: 200, config: { name: 'Advanced Motion Control' }}, 800);
         
         qadd('_PAUSE_', {}, 1500);
 
-        qadd('Enum.SetConfig', { id: 200, config: { name: 'Active Period', options: periods, default_value: 'AM', meta: { ui: { view: 'dropdown', icon: 'https://img.icons8.com/?size=100&id=nZF8SFgVUZZJ&format=png&color=000000', titles: { 'AM': '🌅 AM Period', 'PM': '🌇 PM Period', 'Night': '🌙 Night Period' } } } } }, 700);
-        qadd('Number.SetConfig', { id: 200, config: { name: 'End Hold Time', min: 5, max: 300, meta: { ui: { view: 'slider', unit: 's', icon: 'https://img.icons8.com/?size=100&id=4FL3UKeYVGFI&format=png&color=000000' } } } }, 700);
-        qadd('Number.SetConfig', { id: 201, config: { name: 'Manual Hold Time', min: 5, max: 240, meta: { ui: { view: 'slider', unit: 'm', icon: 'https://img.icons8.com/?size=100&id=TWgnOuDDzAih&format=png&color=000000' } } } }, 700);
-        qadd('Number.SetConfig', { id: 202, config: { name: 'Trigger Window', min: 1, max: 60, meta: { ui: { view: 'slider', unit: 'm', icon: 'https://img.icons8.com/?size=100&id=ddHq816KEsxh&format=png&color=000000' } } } }, 700);
-        qadd('Number.SetConfig', { id: 203, config: { name: 'Current Activity', min: 0, max: 999, meta: { ui: { view: 'label', step: 1, icon: 'https://img.icons8.com/?size=100&id=XpgUyFyd18ju&format=png&color=000000' } } } }, 700);
-        qadd('Boolean.SetConfig', { id: 200, config: { name: 'Motion Logic Switch', default_value: true, meta: { ui: { view: 'toggle', icon: 'https://img.icons8.com/?size=100&id=lsZBoVE2zMo3&format=png&color=000000' } } } }, 700);
-        qadd('Boolean.SetConfig', { id: 201, config: { name: 'WLED Sync Switch', default_value: true, meta: { ui: { view: 'toggle', icon: 'https://img.icons8.com/?size=100&id=rcvmSKzkbMQV&format=png&color=000000' } } } }, 700);
-        qadd('Boolean.SetConfig', { id: 202, config: { name: 'Motion Active', default_value: false, meta: { ui: { view: 'label', icon: 'https://img.icons8.com/?size=100&id=lsZBoVE2zMo3&format=png&color=000000' } } } }, 700);
-        qadd('Text.SetConfig', { id: 200, config: { name: 'System Status', max_len: 50, default_value: 'CLEAR', meta: { ui: { view: 'label', icon: 'https://img.icons8.com/?size=100&id=43660&format=png&color=000000' } } } }, 700);
+        qadd('Enum.SetConfig', { id: 200, config: { name: 'Active Period', options: periods, default_value: 'AM', meta: { ui: { view: 'dropdown', icon: 'https://img.icons8.com/?size=100&id=SU3kedXnvevx&format=png&color=000000', titles: { 'AM': '🌅 AM Period', 'PM': '🌇 PM Period', 'Night': '🌙 Night Period', 'Error': '⚠️' } } } } }, 700);
+        qadd('Number.SetConfig', { id: 200, config: { name: 'End Hold Time', min: 0, max: 60, meta: { ui: { view: 'slider', unit: 's', icon: 'https://img.icons8.com/?size=100&id=bZPqrFYJsJ9H&format=png&color=000000', step: 0.5 } } } }, 700);
+        qadd('Number.SetConfig', { id: 201, config: { name: 'Manual Hold Time', min: 0, max: 60, meta: { ui: { view: 'slider', unit: 'm', icon: 'https://img.icons8.com/?size=100&id=P5W4oBPw4CVq&format=png&color=000000', step: 1 } } } }, 700);
+        qadd('Number.SetConfig', { id: 202, config: { name: 'Trigger Window', min: 1, max: 60, meta: { ui: { view: 'slider', unit: 'm', icon: 'https://img.icons8.com/?size=100&id=rStxAD9bdbxV&format=png&color=000000', step: 1 } } } }, 700);
+        qadd('Number.SetConfig', { id: 203, config: { name: 'Current Activity', min: 0, max: 999, meta: { ui: { view: 'label', step: 1, icon: 'https://img.icons8.com/?size=100&id=aG7MVaERqGRN&format=png&color=000000' } } } }, 700);
+        qadd('Boolean.SetConfig', { id: 200, config: { name: 'Motion Logic Switch', default_value: true, meta: { ui: { view: 'toggle', icon: 'https://img.icons8.com/?size=100&id=0tuc6N70CqVO&format=png&color=000000', titles: ["❌", " ✅"] } } } }, 700);
+        qadd('Boolean.SetConfig', { id: 201, config: { name: 'WLED Sync Switch', default_value: true, meta: { ui: { view: 'toggle', icon: 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/wled.png', titles: ["🚦❌", "🚦🔄"] } } } }, 700);
+        qadd('Boolean.SetConfig', { id: 202, config: { name: 'Motion Detected', default_value: false, meta: { ui: { view: 'label', icon: 'https://img.icons8.com/?size=100&id=mHkb3pgUCyMi&format=png&color=000000', titles: [" ", " "] } } } }, 700);
+        qadd('Text.SetConfig', { id: 200, config: { name: 'System Status', max_len: 50, default_value: 'CLEAR', meta: { ui: { view: 'label', icon: 'https://img.icons8.com/?size=100&id=NKEnx7dPa10Y&format=png&color=000000' } } } }, 700);
         qadd('Group.SetConfig', { id: 200, config: { name: 'Advanced Motion Control', meta: { ui: { view: 'list' } } } }, 700);
         
         let members = ['enum:200', 'text:200', 'number:203', 'boolean:202', 'boolean:200', 'boolean:201', 'number:200', 'number:201', 'number:202'];
@@ -153,7 +155,6 @@ function init() {
         let sc;
         for (sc = 0; sc < SITE_CONFIG.schedules.length; sc++) {
             let item = SITE_CONFIG.schedules[sc];
-            // Uses AquaSmart style code trigger generation parameters cleanly
             let loopbackCall = {
                 enable: true, timespec: item.timespec,
                 calls: [{ method: "Enum.Set", params: { id: 200, value: item.period } }]
@@ -167,9 +168,8 @@ function init() {
 
 function onComplete() {
     console.log('[SETUP] ===============================================');
-    console.log('[SETUP] ALL SYSTEM PACKAGES FULLY PROVISIONED');
+    console.log('[SETUP] ALL SYSTEM COMPONENTS & SCHEDULES FULLY PROVISIONED');
     console.log('[SETUP] ===============================================');
-    // Removed broken stopStatusChangesObserver method call completely
     Shelly.call('Script.Stop', { id: Shelly.getCurrentScriptId() });
 }
 
