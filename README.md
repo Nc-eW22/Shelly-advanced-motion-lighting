@@ -2,17 +2,17 @@
 
 ### *Clockless adaptive motion lighting with multi-sensor input, WLED synchronisation, and schedule-driven scene intelligence — running fully on-device*
 
-**Advanced Motion Pro** turns a Shelly dimmer and a pair of legacy motion sensors into a self-contained adaptive lighting engine. It replaces simple motion-on / motion-off behaviour with time-of-day scene selection, occupancy-scaled brightness escalation, synchronised WLED strip control, and a manual override system — all managed from a native Shelly virtual device card with no cloud, no Home Assistant, and no companion server.
+**Advanced Motion Pro** turns a Shelly dimmer and a set of motion sensors into a self-contained adaptive lighting engine. It replaces simple motion-on / motion-off behaviour with time-of-day scene selection, occupancy-scaled brightness escalation, synchronised WLED strip control, and a manual override system — all managed from a native Shelly virtual device card with no cloud, no Home Assistant, and no companion server.
 
-Built by **SPARK_LABS** at **Recowatt Malta** — Official Shelly Distributor.
+Built by **SPARK_LABS**.
 
-> **Entry:** Shelly Smart Home Challenge 2026 — Scripting & Logic Category
+> **Entry:** Shelly Smart Home Challenge 2026 — Solve the Problem
 
 <div align="center">
-  <img src="assets/UIx3.jpg" alt="Three SPARK_LABS virtual appliances running side-by-side in the Shelly Smart Control app" width="800">
+  <img src="assets/AM_ZLF_UI.jpg" alt="Advanced Motion Pro and ZoneLight Fun virtual appliance panels in the Shelly Smart Control app" width="800">
 </div>
 
-<p align="center"><em>Advanced Motion Pro (centre) alongside GridMaster Pro ARMS (energy) and ZoneLight Fun (spatial WLED tracking) — three SPARK_LABS virtual appliances on the same network.</em></p>
+<p align="center"><em>Advanced Motion Pro (left) and ZoneLight Fun (right) — two SPARK_LABS virtual appliances managing the same corridor from different devices on the same network.</em></p>
 
 ---
 
@@ -20,7 +20,7 @@ Built by **SPARK_LABS** at **Recowatt Malta** — Official Shelly Distributor.
 
 1. [The Problem](#-the-problem)
 2. [The Solution](#-the-solution)
-3. [Hardware](#-hardware)
+3. [Hardware Compatibility](#-hardware-compatibility)
 4. [System Architecture](#%EF%B8%8F-system-architecture)
 5. [Adaptive Brightness Engine](#-adaptive-brightness-engine)
 6. [Virtual Dashboard UI](#-virtual-dashboard-ui)
@@ -36,35 +36,76 @@ Built by **SPARK_LABS** at **Recowatt Malta** — Official Shelly Distributor.
 
 ## 🔧 The Problem
 
-Native motion lighting on Shelly devices is binary — motion detected, light on; motion cleared, light off. There is no concept of time-of-day awareness, no brightness escalation based on corridor traffic, and no graceful hold period to prevent the light snapping off while you are still in the room.
+This project grew out of a real corridor that has been running Shelly hardware for years. Two original Shelly Motion Gen1 sensors, still going strong, controlling a Pro Dimmer 2PM ceiling pendant and a WLED addressable strip recessed into the ceiling. The hardware works — the automation logic didn't.
 
-Adding a WLED strip alongside the dimmer doubles the problem: two independent light sources with no synchronisation, no shared scene logic, and no unified control surface.
+**The core frustrations:**
 
-Handling time-of-day in a script introduces a third problem. Calling `new Date()` at runtime ties the logic to the device clock, which is unreliable before NTP sync completes and drifts on warm restarts. Most Shelly automation scripts either ignore the issue or build fragile clock-parsing routines.
+**Binary motion response.** Native Shelly motion actions are on or off. There is no concept of adjusting brightness based on how busy the space is, or changing the scene based on time of day. A corridor at 2am gets the same blast of light as one at 2pm.
+
+**No graceful hold logic.** With multiple sensors covering a long corridor, one sensor clears while the other is still tracking. The light blinks off and back on as you walk between zones — the exact problem automation is supposed to solve.
+
+**Time-of-day requires complex scripting.** Most approaches to schedule-aware lighting involve parsing `new Date()` at runtime, managing NTP sync states, and hardcoding hour boundaries into the script itself. This makes configuration awkward, boot sequences fragile, and the code harder to maintain.
+
+**WLED is an island.** A WLED strip sitting alongside a dimmer has no shared state. Motion turns on the dimmer but the strip needs separate control. Adjusting the dimmer slider in the app leaves the strip unchanged. Two light sources, zero coordination.
+
+**Old-gen sensors still work — but they're excluded.** The original Shelly Motion sensors (Gen1, HTTP-callback based) are fully functional hardware. Any solution that only supports BLE or Gen3+ sensors forces a hardware replacement that isn't necessary.
+
+**Hardcoded values kill adaptability.** Brightness levels, hold times, transition speeds, and schedule boundaries baked into a script mean that every site needs a code edit. Moving the same logic to a different room, a different building, or a different country should not require touching the source code.
+
+**No user-facing controls.** Without virtual components, every adjustment requires opening the script editor. End users — the people who actually live in the space — have no way to tune the system from the Shelly app.
 
 ---
 
 ## 💡 The Solution
 
-Advanced Motion Pro solves all three problems with a single on-device script:
+Advanced Motion Pro addresses each of these problems with a single on-device script and a one-time Setup Wizard:
 
 **Adaptive brightness** — instead of a fixed brightness, the engine escalates through configurable brightness steps based on how many motion triggers have occurred within a rolling time window. A quiet corridor at night gets 2%. A busy corridor during the day ramps to 60%.
 
-**Unified dispatch gate** — both the dimmer and the WLED strip are driven through a single throttled command queue. Every scene change, manual adjustment, and motion event routes through the same gate, preventing race conditions and command floods on the embedded HTTP stack.
+**Multi-sensor OR logic** — supports 2, 5, or even 10+ sensors. The light stays on as long as any sensor reports active. The hold timer only starts when every sensor has cleared — eliminating mid-walk blink-off entirely.
 
 **Clockless schedule-driven periods** — instead of parsing `new Date()` at runtime, the Setup Wizard installs Shelly cron schedules that write directly to a virtual enum component via loopback RPC. The Brain simply reads the enum value to know whether it is AM, PM, or Night. The device's own scheduler handles all time logic — the script never touches a clock.
 
+**Unified dispatch gate** — both the dimmer and the WLED strip are driven through a single throttled command queue. Every scene change, manual adjustment, and motion event routes through the same gate, preventing race conditions and command floods.
+
+**Full switch retention** — physical button presses, app slider adjustments, and long-press dimming all continue to work exactly as expected. The script layers adaptive logic on top of the hardware without disabling any native switch functionality. Manual overrides are first-class citizens with configurable hold durations.
+
+**WLED integration is optional** — set `wled.en: false` and the script runs as a pure dimmer controller. No WLED hardware required. The same codebase works in a corridor with a full LED strip or a bedroom with just a ceiling light.
+
+**KVS-driven configuration** — all tuneable parameters (brightness steps, hold times, transition speeds, sensor lists, schedule boundaries) are stored in device KVS and loaded on boot. Adapting the system to a new environment means editing the Setup Wizard's `SITE_CONFIG` block and running it once — the Brain script itself is never modified.
+
+**Virtual component dashboard** — 9 interactive components give end users real-time status, motion enable/disable toggles, hold time sliders, and a live activity counter — all from the native Shelly app with no external UI.
+
+**Multi-script ready** — the Brain exposes clean HTTP endpoints and integrates with other SPARK_LABS scripts (notably ZoneLight Fun) via the same sensor callback interface. Adding a spatial tracking overlay or a companion automation is a single URL entry.
+
 ---
 
-## 💻 Hardware
+## 💻 Hardware Compatibility
 
-| Component | Role | IP (reference install) |
-|-----------|------|------------------------|
-| **Shelly Pro Dimmer 2PM** | Host device — runs the Brain, controls the ceiling pendant via `light:1` | `192.168.4.243` |
-| **Shelly Motion Gen1** ×2 | PIR sensors at each end of the corridor — call the Brain's HTTP endpoints on motion start/end | `192.168.0.161`, `192.168.0.162` |
-| **WLED controller** | Addressable LED strip — receives JSON API commands from the Brain for brightness and scene sync | `192.168.4.175` |
+### Host Devices (Brain)
 
-Any Shelly device with scripting, virtual components, and a dimmable output can host the Brain. The motion sensors can be any device capable of calling a URL on detection — Shelly Motion Gen1, Gen2, BLU Motion (via gateway actions), or third-party PIRs with HTTP webhook support.
+Any Shelly device with scripting support, virtual components, and a dimmable light output:
+
+| Device | Output Type | Notes |
+|--------|-------------|-------|
+| Shelly Pro Dimmer 1PM / 2PM | 0–100% dimmer | Reference platform — used in development |
+| Shelly Dimmer Gen3 | 0–100% dimmer | Single-channel, compact form factor |
+| Shelly RGBCCT Pro (FUTURE UPDATE)| RGB + CCT channels | Use `light:0` for CCT dimming; RGB scenes possible with WLED disabled |
+| Shelly Duo / Bulb Gen4 (FUTURE UPDATE)| 0–100% dimmer | Bulb-based installs/Multi bulb support — set `l_id` to match the bulb's light component |
+
+### Motion Sensors
+
+Any device capable of calling an HTTP URL on motion start and motion end:
+
+| Sensor | Generation | Connection Method |
+|--------|------------|-------------------|
+| Shelly Motion (Gen1) | Gen1 | HTTP I/O URL Actions — direct callback to Brain endpoints |
+| Shelly Motion 2 | Gen2 | HTTP I/O URL Actions or Shelly Actions |
+| Shelly BLU Motion | BLE | Paired to host device → BTHome Actions → Brain HTTP endpoints |
+| Shelly Presence (Gen4) | Gen4 | Direct script-to-script callback or HTTP endpoints |
+| Third-party PIR sensors | Any | Any sensor with HTTP webhook output works |
+
+The sensor array in `SITE_CONFIG` is unbounded — add as many sensors as your corridor, hallway, or open-plan space requires. Each sensor is identified by a unique string ID.
 
 ---
 
@@ -123,6 +164,8 @@ All outbound commands (dimmer HTTP, WLED JSON POST) pass through a single-slot q
 
 When WLED sync is enabled, the Brain polls the dimmer's current brightness every 2 seconds and mirrors it to the WLED strip. This keeps both light sources aligned during manual slider adjustments in the Shelly app — not just during motion events.
 
+> **Design note:** The sync loop is the one polling mechanism in an otherwise fully event-driven architecture. It exists because the Shelly dimmer does not emit a status event during a long-press dimming ramp — only on release. A future firmware update exposing mid-ramp brightness events would allow this loop to be replaced with a pure push handler.
+
 ---
 
 ## 📈 Adaptive Brightness Engine
@@ -139,6 +182,8 @@ const STEPS_NT = [1, 2, 2,  3, 20, 3,  6, 10, 10];
 Reading `STEPS_AM`: after 1 trigger → 20% dimmer, 20% WLED. After 3 triggers → 40/40. After 6 triggers → 60/60.
 
 The flat positional format avoids nested objects — saving memory on the shared mJS heap. Triggers are counted within a configurable rolling time window (default: 10 minutes). When traffic drops below a threshold, the next motion event maps back to the lower brightness step.
+
+> **Minor known issue:** The activity counter VC does not auto-reset to zero when the rolling window expires without new motion. It holds the last count until the next trigger event recalculates. Cosmetic only — the brightness logic itself correctly re-evaluates on every new event.
 
 Each period also carries **default values** (used before the first trigger threshold is reached) and independent **transition times** for smooth fading:
 
@@ -176,7 +221,9 @@ The application builds **9 virtual components** under a single control card, con
 
 ### Status Ticker Format
 
-The `text:200` status line cycles between three states:
+The `text:200` status line cycles between four display states:
+
+> **Note:** Status ticker text formatting is still being refined. The display strings shown below represent the current implementation — wording and emoji may change before final release.
 
 | State | Display | Meaning |
 |---|---|---|
@@ -200,7 +247,9 @@ Motion start:  http://<DEVICE_IP>/script/<SCRIPT_ID>/motion?sensor=<ID>
 Motion end:    http://<DEVICE_IP>/script/<SCRIPT_ID>/motion_end?sensor=<ID>
 ```
 
-For Shelly Motion Gen1/Gen2, paste these into the sensor's I/O URL Actions. For BLU Motion, create gateway actions on the host device. The `sensor` parameter is a unique string ID per sensor — it does not need to match hardware IDs.
+For Shelly Motion Gen1/Gen2, paste these into the sensor's I/O URL Actions. For BLU Motion, create BTHome Actions on the host device's gateway. The `sensor` parameter is a unique string ID per sensor — it does not need to match hardware IDs.
+
+There is no limit on the number of sensors. A short corridor might use 2; a long hallway or open-plan space could use 5 or more. Each sensor is an entry in the `SITE_CONFIG.sensors` array and a key in the Brain's `ACTIVE_SENSORS` map.
 
 ### Phase 2 — The Setup Wizard
 
@@ -252,7 +301,7 @@ For Shelly Motion Gen1/Gen2, paste these into the sensor's I/O URL Actions. For 
 | `trans.on` | number | `300` | Dimmer fade-in transition (ms) |
 | `trans.off` | number | `1500` | Dimmer fade-out transition (ms) |
 | `debug` | boolean | `true` | Enable verbose console logging |
-| `sensors[]` | array | — | Sensor list: `{ id: "1", url: "http://..." }` per sensor |
+| `sensors[]` | array | — | Sensor list: `{ id: "1", url: "http://..." }` — add as many as needed |
 | `schedules[]` | array | — | Cron definitions: `{ name, timespec, period }` per period |
 
 ### WLED Scene Priority
@@ -308,9 +357,13 @@ Advanced Motion Pro treats `"zonelight"` as just another sensor in its OR matrix
 
 * **No persistent trigger count.** The rolling trigger window and count live in RAM. A script restart resets the count to zero and the brightness to the period default. This is by design — window timers cannot survive a restart.
 
+* **Activity counter display lag.** The `number:203` (Current Activity) VC does not auto-reset when the rolling window expires without new motion. It holds the last count until the next trigger event recalculates. Cosmetic only — the brightness logic correctly re-evaluates on each new event.
+
 * **Clock dependency on cron.** The clockless design moves time logic to the Shelly firmware scheduler, which itself depends on NTP. If the device has not synced its clock (e.g. after a power outage with no internet), schedules may fire at incorrect times until NTP completes.
 
 * **WLED sync is one-directional.** The Brain mirrors dimmer brightness to WLED, but changes made directly on the WLED web UI are not read back. The WLED strip may drift out of sync if controlled externally.
+
+* **WLED sync uses polling.** The brightness sync loop polls every 2 seconds — the only non-event-driven mechanism in the architecture. This exists because the Shelly dimmer does not emit status events during a long-press dimming ramp. A future firmware update exposing mid-ramp events would allow replacement with a pure push handler.
 
 * **Single dimmer output.** The current architecture controls one `light:N` output. Multi-channel dimming (e.g. separate corridor zones on a Dimmer 2PM) would require duplicating the dispatch logic per channel.
 
@@ -324,7 +377,7 @@ Shelly_Advanced_Motion_Pro/
 ├── Advanced_Motion_Pro_Setup.js        # Setup Wizard / installer — v1.6
 ├── README.md
 └── assets/
-    ├── UIx3.jpg                        # Hero — three SPARK_LABS panels side-by-side
+    ├── AM_ZLF_UI.jpg                   # Hero — Advanced Motion Pro + ZoneLight Fun panels
     ├── AM_VC_PERIOD.jpg                # VC — active period dropdown
     ├── AM_VC_STATUS.jpg                # VC — system status ticker
     ├── AM_VC_ACTIVITY.jpg              # VC — current activity count
@@ -340,7 +393,7 @@ Shelly_Advanced_Motion_Pro/
 
 ## ⚖️ License & Attribution
 
-Developed by **SPARK_LABS** at **Recowatt Malta** — Official Shelly Distributor.
+Developed by **⚡ SPARK_LABS**.
 
 ### Acknowledgements
 
